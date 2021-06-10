@@ -11,7 +11,7 @@ namespace MuteApp
             try
             {
                 var app = new App();
-                app.Run();
+                app.RunSingleInstance();
             }
             catch (Exception ex)
             {

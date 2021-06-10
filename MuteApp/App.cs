@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Reflection;
+using System.Threading;
 using System.Windows;
 using System.Windows.Input;
 using NAudio.CoreAudioApi;
@@ -63,6 +64,24 @@ namespace MuteApp
                 notifyIcon.Visible = false;
                 Environment.Exit(0);
             };
+        }
+
+        public void RunSingleInstance()
+        {
+            string assemblyName = Assembly.GetExecutingAssembly().GetName().Name;
+            using var handle = new EventWaitHandle(
+                false,
+                EventResetMode.AutoReset,
+                assemblyName,
+                out bool createdNew);
+            if (createdNew)
+            {
+                Run();
+            }
+            else
+            {
+                handle.Set();
+            }
         }
     }
 }
