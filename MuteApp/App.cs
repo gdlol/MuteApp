@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -21,8 +22,8 @@ namespace MuteApp
         {
             GUITHREADINFO guiInfo = default;
             guiInfo.cbSize = (uint)Marshal.SizeOf(guiInfo);
-            int success = GetGUIThreadInfo(0, ref guiInfo);
-            if (success == 0)
+            int result = GetGUIThreadInfo(0, ref guiInfo);
+            if (result == 0)
             {
                 int error = Marshal.GetLastWin32Error();
                 MessageBox.Show(new Win32Exception(error).Message);
@@ -31,57 +32,77 @@ namespace MuteApp
             return guiInfo.hwndFocus;
         }
 
-        private static int GetParentProcessId(int processId)
+        private static IEnumerable<Kernel32.PROCESSENTRY32> EnumerateProcessEntries()
         {
             using var handle = Kernel32.CreateToolhelp32Snapshot(
-                Kernel32.CreateToolhelp32SnapshotFlags.TH32CS_SNAPPROCESS,
-                processId);
+                   Kernel32.CreateToolhelp32SnapshotFlags.TH32CS_SNAPPROCESS,
+                   0);
             if (handle.IsInvalid)
             {
                 int error = Marshal.GetLastWin32Error();
                 throw new System.ComponentModel.Win32Exception(error);
             }
 
-            if (Kernel32.Process32First(handle) is not Kernel32.PROCESSENTRY32 entry)
+            if (Kernel32.Process32First(handle) is Kernel32.PROCESSENTRY32 entry)
             {
-                return -1;
-            }
+                yield return entry;
 
-            while (true)
-            {
-                if (entry.th32ProcessID == processId)
+                while (Kernel32.Process32Next(handle) is Kernel32.PROCESSENTRY32 nextEntry)
                 {
-                    return entry.th32ParentProcessID;
-                }
-                if (Kernel32.Process32Next(handle) is Kernel32.PROCESSENTRY32 nextEntry)
-                {
-                    entry = nextEntry;
-                }
-                else
-                {
-                    break;
+                    yield return nextEntry;
                 }
             }
-            return -1;
         }
 
-        private static List<int> GetParents(int processId)
+        private static int[] GetParents(int processId)
         {
-            var list = new List<int>();
-            while (true)
+            var entries = EnumerateProcessEntries().ToArray();
+            bool TryGetParentProcessId(int processId, out int parentProcessId)
             {
-                processId = GetParentProcessId(processId);
-                if (processId == -1 || list.Contains(processId))
+                parentProcessId = -1;
+                foreach (var entry in entries)
+                {
+                    if (entry.th32ProcessID == processId)
+                    {
+                        parentProcessId = entry.th32ParentProcessID;
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            var parents = new List<int>();
+            int childProcessId = processId;
+            while (TryGetParentProcessId(childProcessId, out int parentProcessId))
+            {
+                if (parentProcessId == processId || parents.Contains(parentProcessId))
                 {
                     break;
                 }
-                list.Add(processId);
+                parents.Add(parentProcessId);
+                childProcessId = parentProcessId;
             }
-            return list;
+            return parents.ToArray();
         }
 
         public App()
         {
+            string applicationName = Assembly.GetExecutingAssembly().GetName().Name;
+            System.Windows.Forms.NotifyIcon notifyIcon;
+            System.Windows.Forms.ContextMenuStrip contextMenu;
+            System.Windows.Forms.ToolStripMenuItem exitItem;
+
+            notifyIcon = new System.Windows.Forms.NotifyIcon
+            {
+                Icon = System.Drawing.Icon.ExtractAssociatedIcon(Process.GetCurrentProcess().MainModule.FileName),
+                Text = applicationName,
+                Visible = true,
+                ContextMenuStrip = contextMenu = new System.Windows.Forms.ContextMenuStrip()
+            };
+            Exit += (sender, e) => notifyIcon.Dispose();
+            contextMenu.Items.Add(exitItem = new System.Windows.Forms.ToolStripMenuItem("Exit"));
+            exitItem.Click += (sender, e) => Shutdown();
+
             HotkeyManager.Current.AddOrReplace("Mute", Key.F7, ModifierKeys.Alt, (sender, e) =>
             {
                 var hWnd = GetFocusWindow();
@@ -121,28 +142,6 @@ namespace MuteApp
                     }
                 }
             });
-
-            string applicationName = Assembly.GetExecutingAssembly().GetName().Name;
-            System.Windows.Forms.NotifyIcon notifyIcon;
-            System.Windows.Forms.ContextMenuStrip contextMenu;
-            System.Windows.Forms.ToolStripMenuItem exitItem;
-
-            notifyIcon = new System.Windows.Forms.NotifyIcon
-            {
-                Icon = System.Drawing.Icon.ExtractAssociatedIcon(Process.GetCurrentProcess().MainModule.FileName),
-                Text = applicationName,
-                Visible = true,
-                ContextMenuStrip = contextMenu = new System.Windows.Forms.ContextMenuStrip()
-            };
-            Exit += (sender, e) =>
-            {
-                notifyIcon.Dispose();
-            };
-            contextMenu.Items.Add(exitItem = new System.Windows.Forms.ToolStripMenuItem("Exit"));
-            exitItem.Click += (sender, e) =>
-            {
-                Shutdown();
-            };
         }
 
         public void RunSingleInstance()
