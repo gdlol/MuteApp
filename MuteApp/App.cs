@@ -35,8 +35,8 @@ namespace MuteApp
         private static IEnumerable<Kernel32.PROCESSENTRY32> EnumerateProcessEntries()
         {
             using var handle = Kernel32.CreateToolhelp32Snapshot(
-                   Kernel32.CreateToolhelp32SnapshotFlags.TH32CS_SNAPPROCESS,
-                   0);
+                Kernel32.CreateToolhelp32SnapshotFlags.TH32CS_SNAPPROCESS,
+                0);
             if (handle.IsInvalid)
             {
                 int error = Marshal.GetLastWin32Error();
