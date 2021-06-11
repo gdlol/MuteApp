@@ -82,8 +82,10 @@ namespace MuteApp
             return parents.ToArray();
         }
 
-        public App()
+        protected override void OnStartup(StartupEventArgs e)
         {
+            base.OnStartup(e);
+
             string applicationName = Assembly.GetExecutingAssembly().GetName().Name;
             System.Windows.Forms.NotifyIcon notifyIcon;
             System.Windows.Forms.ContextMenuStrip contextMenu;
