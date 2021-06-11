@@ -57,23 +57,21 @@ namespace MuteApp
         private static int[] GetParents(int processId)
         {
             var entries = EnumerateProcessEntries().ToArray();
-            bool TryGetParentProcessId(int processId, out int parentProcessId)
+            (bool success, int? parentProcessId) TryGetParentProcessId(int processId)
             {
-                parentProcessId = -1;
                 foreach (var entry in entries)
                 {
                     if (entry.th32ProcessID == processId)
                     {
-                        parentProcessId = entry.th32ParentProcessID;
-                        return true;
+                        return (true, entry.th32ParentProcessID);
                     }
                 }
-                return false;
+                return (false, null);
             }
 
             var parents = new List<int>();
             int childProcessId = processId;
-            while (TryGetParentProcessId(childProcessId, out int parentProcessId))
+            while (TryGetParentProcessId(childProcessId) is (true, int parentProcessId))
             {
                 if (parentProcessId == processId || parents.Contains(parentProcessId))
                 {
