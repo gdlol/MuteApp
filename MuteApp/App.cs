@@ -26,8 +26,7 @@ namespace MuteApp
             if (result == 0)
             {
                 int error = Marshal.GetLastWin32Error();
-                MessageBox.Show(new Win32Exception(error).Message);
-                return IntPtr.Zero;
+                throw new Win32Exception(error);
             }
             return guiInfo.hwndFocus;
         }
@@ -40,7 +39,7 @@ namespace MuteApp
             if (handle.IsInvalid)
             {
                 int error = Marshal.GetLastWin32Error();
-                throw new System.ComponentModel.Win32Exception(error);
+                throw new Win32Exception(error);
             }
 
             if (Kernel32.Process32First(handle) is Kernel32.PROCESSENTRY32 entry)
@@ -57,7 +56,7 @@ namespace MuteApp
         private static int[] GetParents(int processId)
         {
             var entries = EnumerateProcessEntries().ToArray();
-            (bool success, int? parentProcessId) TryGetParentProcessId(int processId)
+            (bool success, int parentProcessId) TryGetParentProcessId(int processId)
             {
                 foreach (var entry in entries)
                 {
@@ -66,7 +65,7 @@ namespace MuteApp
                         return (true, entry.th32ParentProcessID);
                     }
                 }
-                return (false, null);
+                return (false, default);
             }
 
             var parents = new List<int>();
@@ -103,15 +102,22 @@ namespace MuteApp
 
             HotkeyManager.Current.AddOrReplace("Mute", Key.F7, ModifierKeys.Alt, (sender, e) =>
             {
-                var hWnd = GetFocusWindow();
+                IntPtr hWnd;
+                try
+                {
+                    hWnd = GetFocusWindow();
+                }
+                catch (Win32Exception ex)
+                {
+                    MessageBox.Show(ex.Message);
+                    return;
+                }
                 if (hWnd == IntPtr.Zero)
                 {
                     return;
                 }
 
                 int threadId = User32.GetWindowThreadProcessId(hWnd, out int focusProcessId);
-                using var process = Process.GetProcessById(focusProcessId);
-                string title = User32.GetWindowText(hWnd);
                 var focusProcessParents = GetParents(focusProcessId);
 
                 using var deviceEnumerator = new MMDeviceEnumerator();
@@ -153,10 +159,6 @@ namespace MuteApp
             if (createdNew)
             {
                 Run();
-            }
-            else
-            {
-                handle.Set();
             }
         }
     }
