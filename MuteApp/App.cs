@@ -25,10 +25,29 @@ namespace MuteApp
             int result = GetGUIThreadInfo(0, ref guiInfo);
             if (result == 0)
             {
-                int error = Marshal.GetLastWin32Error();
-                throw new Win32Exception(error);
+                throw new Win32Exception(Marshal.GetLastWin32Error());
             }
             return guiInfo.hwndFocus;
+        }
+
+        private static (bool success, DateTimeOffset startTime) TryGetProcessStartTime(int processId)
+        {
+            using var handle = Kernel32.OpenProcess(
+                Kernel32.ProcessAccess.PROCESS_QUERY_LIMITED_INFORMATION,
+                false,
+                processId);
+            if (handle.IsInvalid)
+            {
+                return (false, default);
+            }
+            if (Kernel32.GetProcessTimes(handle, out var creation, out var exit, out var kernel, out var user))
+            {
+                return (true, DateTimeOffset.FromFileTime(creation));
+            }
+            else
+            {
+                return (false, default);
+            }
         }
 
         private static IEnumerable<Kernel32.PROCESSENTRY32> EnumerateProcessEntries()
@@ -38,8 +57,7 @@ namespace MuteApp
                 0);
             if (handle.IsInvalid)
             {
-                int error = Marshal.GetLastWin32Error();
-                throw new Win32Exception(error);
+                throw new Win32Exception(Marshal.GetLastWin32Error());
             }
 
             if (Kernel32.Process32First(handle) is Kernel32.PROCESSENTRY32 entry)
@@ -70,14 +88,19 @@ namespace MuteApp
 
             var parents = new List<int>();
             int childProcessId = processId;
-            while (TryGetParentProcessId(childProcessId) is (true, int parentProcessId))
+            if (TryGetProcessStartTime(childProcessId) is (true, var childStartTime))
             {
-                if (parentProcessId == processId || parents.Contains(parentProcessId))
+                while (TryGetParentProcessId(childProcessId) is (true, int parentProcessId))
                 {
-                    break;
+                    if (TryGetProcessStartTime(parentProcessId) is not (true, var parentStartTime)
+                        || parentStartTime > childStartTime)
+                    {
+                        break;
+                    }
+                    parents.Add(parentProcessId);
+                    childProcessId = parentProcessId;
+                    childStartTime = parentStartTime;
                 }
-                parents.Add(parentProcessId);
-                childProcessId = parentProcessId;
             }
             return parents.ToArray();
         }
